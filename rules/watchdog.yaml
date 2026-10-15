@@ -1,0 +1,12 @@
+groups:
+  - name: watchdog
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: Always-firing alert that proves rules are being evaluated for this tenant.
+          description: >-
+            Route it to an external dead man's switch. If the heartbeat stops,
+            the ruler or the Alertmanager for this tenant is broken.
