@@ -1,0 +1,12 @@
+# Dashboards are provisioned from files and read-only in the UI: change them
+# in Git. Each sub-directory becomes a Grafana folder.
+apiVersion: 1
+providers:
+  - name: dashboards
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
