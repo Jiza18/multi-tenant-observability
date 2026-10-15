@@ -1,0 +1,63 @@
+# Linux hosts monitored with node_exporter or Alloy's prometheus.exporter.unix.
+groups:
+  - name: hosts
+    rules:
+      - alert: HostDiskAlmostFull
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.05
+          and node_filesystem_readonly == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is over 95% full."
+          description: "Only {{ $value | humanizePercentage }} of {{ $labels.mountpoint }} is free."
+
+      - alert: HostDiskWillFillIn24Hours
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.20
+          and predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}[6h], 24 * 3600) < 0
+          and node_filesystem_readonly == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} will fill up within 24 hours."
+          description: "At the current write rate of the last 6 hours, {{ $labels.mountpoint }} runs out of space within a day."
+
+      - alert: HostOutOfMemory
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has less than 5% memory available."
+          description: "Available memory is {{ $value | humanizePercentage }}. Expect OOM kills."
+
+      - alert: HostOomKillDetected
+        expr: increase(node_vmstat_oom_kill[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The kernel OOM killer ran on {{ $labels.instance }}."
+          description: "{{ $value | humanize }} processes were killed for lack of memory in the last 5 minutes."
+
+      - alert: HostHighCpuUsage
+        expr: 1 - avg by (job, instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.90
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} CPU has been over 90% busy for 30 minutes."
+          description: "CPU usage is {{ $value | humanizePercentage }}."
+
+      - alert: HostClockSkew
+        expr: abs(node_timex_offset_seconds) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Clock on {{ $labels.instance }} is off by more than 50ms."
+          description: "Check NTP/chrony. Skewed clocks break TLS, logs correlation and sample ingestion."

@@ -1,0 +1,80 @@
+rule_files:
+  - ../platform.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: gateway returning 5xx
+    interval: 1m
+    input_series:
+      - series: 'up{job="observability/tenant-gateway", instance="gw-1"}'
+        values: '1x30'
+      - series: 'tenant_gateway_requests_total{route="push", token="acme-agents", code="200"}'
+        values: '0+90x30'
+      - series: 'tenant_gateway_requests_total{route="push", token="acme-agents", code="502"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TenantGatewayHighErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "10% of gateway requests fail with 5xx."
+              description: The gateway cannot reach Mimir or Mimir is rejecting requests.
+      - eval_time: 20m
+        alertname: TenantGatewayDown
+        exp_alerts: []
+
+  - name: tenant close to its series limit
+    interval: 1m
+    input_series:
+      # 3 ingesters hold a replica of each series: 90k series per tenant.
+      - series: 'cortex_ingester_memory_series_created_total{user="acme-prod", pod="mimir-0"}'
+        values: '90000x40'
+      - series: 'cortex_ingester_memory_series_removed_total{user="acme-prod", pod="mimir-0"}'
+        values: '0x40'
+      - series: 'cortex_ingester_memory_series_created_total{user="acme-prod", pod="mimir-1"}'
+        values: '90000x40'
+      - series: 'cortex_ingester_memory_series_removed_total{user="acme-prod", pod="mimir-1"}'
+        values: '0x40'
+      - series: 'cortex_ingester_memory_series_created_total{user="acme-prod", pod="mimir-2"}'
+        values: '90000x40'
+      - series: 'cortex_ingester_memory_series_removed_total{user="acme-prod", pod="mimir-2"}'
+        values: '0x40'
+      - series: 'cortex_limits_overrides{user="acme-prod", limit_name="max_global_series_per_user", pod="mimir-0"}'
+        values: '100000x40'
+      # This tenant has the default limit, so the exporter has no override for it.
+      - series: 'cortex_ingester_memory_series_created_total{user="globex-prod", pod="mimir-0"}'
+        values: '420x40'
+      - series: 'cortex_ingester_memory_series_removed_total{user="globex-prod", pod="mimir-0"}'
+        values: '0x40'
+      - series: 'cortex_ingester_memory_series_created_total{user="globex-prod", pod="mimir-1"}'
+        values: '420x40'
+      - series: 'cortex_ingester_memory_series_removed_total{user="globex-prod", pod="mimir-1"}'
+        values: '0x40'
+      - series: 'cortex_ingester_memory_series_created_total{user="globex-prod", pod="mimir-2"}'
+        values: '420x40'
+      - series: 'cortex_ingester_memory_series_removed_total{user="globex-prod", pod="mimir-2"}'
+        values: '0x40'
+      - series: 'cortex_limits_defaults{limit_name="max_global_series_per_user", pod="mimir-0"}'
+        values: '500x40'
+    promql_expr_test:
+      - expr: tenant:max_global_series_per_user:limit
+        eval_time: 1m
+        exp_samples:
+          - labels: 'tenant:max_global_series_per_user:limit{user="acme-prod"}'
+            value: 100000
+          - labels: 'tenant:max_global_series_per_user:limit{user="globex-prod"}'
+            value: 500
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: TenantNearSeriesLimit
+        exp_alerts:
+          - exp_labels: {severity: warning, user: acme-prod}
+            exp_annotations:
+              summary: "Tenant acme-prod uses 90% of its series limit."
+              description: New series will be rejected at 100%. Raise max_global_series in tenants.yaml or reduce cardinality.
+          - exp_labels: {severity: warning, user: globex-prod}
+            exp_annotations:
+              summary: "Tenant globex-prod uses 84% of its series limit."
+              description: New series will be rejected at 100%. Raise max_global_series in tenants.yaml or reduce cardinality.

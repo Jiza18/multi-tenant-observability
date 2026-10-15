@@ -1,0 +1,44 @@
+# RabbitMQ through the built-in rabbitmq_prometheus plugin. The default
+# /metrics endpoint aggregates per node; rules that need a `queue` label
+# require scraping /metrics/per-object (or /metrics/detailed) as well.
+groups:
+  - name: rabbitmq
+    rules:
+      - alert: RabbitMQResourceAlarm
+        expr: |
+          rabbitmq_alarms_memory_used_watermark == 1
+          or rabbitmq_alarms_free_disk_space_watermark == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RabbitMQ {{ $labels.instance }} raised a memory or disk alarm."
+          description: "Publishers are blocked until the alarm clears."
+
+      # Redeliveries are a counter: alert on the rate, not on the total, or the
+      # alert never resolves after the first redelivery.
+      - alert: RabbitMQHighRedeliveryRate
+        expr: sum by (job, instance) (rate(rabbitmq_channel_messages_redelivered_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RabbitMQ {{ $labels.instance }} is redelivering {{ $value | humanize }} messages/s."
+          description: "Consumers keep rejecting or failing to ack messages. Look for poison messages or crashing consumers."
+
+      - alert: RabbitMQQueueBacklog
+        expr: rabbitmq_queue_messages_ready > 1000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RabbitMQ on {{ $labels.instance }} has {{ $value | humanize }} messages waiting."
+          description: "Messages accumulate faster than consumers process them."
+
+      - alert: RabbitMQUnroutableMessages
+        expr: increase(rabbitmq_channel_messages_unroutable_dropped_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "RabbitMQ {{ $labels.instance }} is dropping unroutable messages."
+          description: "Messages are published to exchanges with no matching binding and are lost."

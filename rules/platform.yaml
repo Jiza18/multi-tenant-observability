@@ -1,0 +1,94 @@
+# Alerts for the platform itself, evaluated in the `platform` tenant.
+# Mimir's own alerts come from the vendored mixin (mimir-mixin-alerts.yaml).
+groups:
+  - name: tenant-gateway
+    rules:
+      - alert: TenantGatewayDown
+        expr: sum(up{job=~".+/tenant-gateway"}) == 0 or absent(up{job=~".+/tenant-gateway"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: No tenant-gateway instance is up.
+          description: Every tenant is failing to push metrics and alerts.
+
+      - alert: TenantGatewayHighErrorRate
+        expr: |
+          sum(rate(tenant_gateway_requests_total{code=~"5.."}[5m]))
+            / sum(rate(tenant_gateway_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of gateway requests fail with 5xx."
+          description: The gateway cannot reach Mimir or Mimir is rejecting requests.
+
+      - alert: TenantGatewayAuthFailures
+        expr: sum by (reason) (rate(tenant_gateway_denied_requests_total{reason=~"invalid_token|missing_credentials"}[5m])) > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The gateway rejects {{ $value | humanize }} requests/s ({{ $labels.reason }})."
+          description: A client is still using a revoked token, or someone is probing the endpoint.
+
+      - alert: TenantGatewayConfigRejected
+        expr: tenant_gateway_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "tenant-gateway {{ $labels.instance }} rejected its token file."
+          description: The previous tokens are still active. Fix the file; check the gateway logs for the reason.
+
+  - name: tenants
+    rules:
+      - alert: TenantSamplesDiscarded
+        expr: sum by (user, reason) (rate(cortex_discarded_samples_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mimir is discarding samples from tenant {{ $labels.user }} ({{ $labels.reason }})."
+          description: The tenant hit a limit or sends invalid data. Raise its limits in tenants.yaml or fix the sender.
+
+      - alert: TenantNearSeriesLimit
+        expr: tenant:memory_series:estimate / on (user) tenant:max_global_series_per_user:limit > 0.80
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.user }} uses {{ $value | humanizePercentage }} of its series limit."
+          description: New series will be rejected at 100%. Raise max_global_series in tenants.yaml or reduce cardinality.
+
+  - name: tenant-limits
+    rules:
+      # max_global_series_per_user limits in-memory series (which include
+      # series that stopped receiving samples but are not yet flushed). Every
+      # series is stored on 3 ingesters (replication factor 3).
+      - record: tenant:memory_series:estimate
+        expr: |
+          sum by (user) (
+            cortex_ingester_memory_series_created_total - cortex_ingester_memory_series_removed_total
+          ) / 3
+
+      # The overrides exporter only exports limits that differ from the
+      # defaults. Fall back to the default so every tenant has a limit.
+      - record: tenant:max_global_series_per_user:limit
+        expr: |
+          max by (user) (cortex_limits_overrides{limit_name="max_global_series_per_user"})
+          or on (user) (
+            max by (user) (cortex_ingester_memory_series_created_total) * 0
+            + on () group_left () max(cortex_limits_defaults{limit_name="max_global_series_per_user"})
+          )
+
+  - name: grafana
+    rules:
+      - alert: GrafanaDown
+        expr: up{job=~".+/grafana"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Grafana is down.
+          description: Dashboards are unavailable. Ingestion and alerting are not affected.

@@ -1,0 +1,32 @@
+# MongoDB through percona/mongodb_exporter.
+groups:
+  - name: mongodb
+    rules:
+      - alert: MongoDBDown
+        expr: mongodb_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MongoDB on {{ $labels.instance }} is down."
+          description: "The exporter cannot connect to mongod."
+
+      - alert: MongoDBReplicaMemberUnhealthy
+        expr: mongodb_rs_members_health == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A replica set member seen from {{ $labels.instance }} is unhealthy."
+          description: "The replica set is running with reduced redundancy."
+
+      - alert: MongoDBConnectionsNearLimit
+        expr: |
+          sum by (job, instance) (mongodb_ss_connections{conn_type="current"})
+            / sum by (job, instance) (mongodb_ss_connections{conn_type=~"current|available"}) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MongoDB on {{ $labels.instance }} uses {{ $value | humanizePercentage }} of its connections."
+          description: "New clients will be refused once the limit is reached."

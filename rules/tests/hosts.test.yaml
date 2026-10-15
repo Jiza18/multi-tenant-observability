@@ -1,0 +1,54 @@
+rule_files:
+  - ../hosts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: disk almost full fires only on writable filesystems
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="web-1", job="node", mountpoint="/", fstype="ext4"}'
+        values: '4x10'
+      - series: 'node_filesystem_size_bytes{instance="web-1", job="node", mountpoint="/", fstype="ext4"}'
+        values: '100x10'
+      - series: 'node_filesystem_readonly{instance="web-1", job="node", mountpoint="/", fstype="ext4"}'
+        values: '0x10'
+      # Read-only image mount: full by design, must not alert.
+      - series: 'node_filesystem_avail_bytes{instance="web-1", job="node", mountpoint="/snap", fstype="ext4"}'
+        values: '0x10'
+      - series: 'node_filesystem_size_bytes{instance="web-1", job="node", mountpoint="/snap", fstype="ext4"}'
+        values: '100x10'
+      - series: 'node_filesystem_readonly{instance="web-1", job="node", mountpoint="/snap", fstype="ext4"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HostDiskAlmostFull
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: HostDiskAlmostFull
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: web-1
+              job: node
+              mountpoint: /
+              fstype: ext4
+            exp_annotations:
+              summary: "Filesystem / on web-1 is over 95% full."
+              description: "Only 4% of / is free."
+
+  - name: memory pressure
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{instance="web-1", job="node"}'
+        values: '30 3x10'
+      - series: 'node_memory_MemTotal_bytes{instance="web-1", job="node"}'
+        values: '100x10'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: HostOutOfMemory
+        exp_alerts:
+          - exp_labels: {severity: critical, instance: web-1, job: node}
+            exp_annotations:
+              summary: "web-1 has less than 5% memory available."
+              description: "Available memory is 3%. Expect OOM kills."

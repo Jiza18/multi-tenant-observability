@@ -1,0 +1,24 @@
+rule_files:
+  - ../agent-health.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: tenant that stops sending data
+    interval: 1m
+    input_series:
+      - series: 'up{instance="web-1", job="node"}'
+        values: '1x5 _x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TenantNoData
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: TenantNoData
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: No metrics received from this tenant for 15 minutes.
+              description: >-
+                The tenant's agents stopped shipping metrics. Check that the agent is
+                running, that it can reach the gateway and that its token is valid.

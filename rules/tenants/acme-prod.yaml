@@ -1,0 +1,15 @@
+# Rules that only make sense for ACME production. Loaded into the `custom`
+# namespace of the acme-prod tenant. Needs per-queue RabbitMQ metrics
+# (/metrics/per-object).
+groups:
+  - name: acme-orders
+    rules:
+      - alert: OrdersQueueBacklog
+        expr: rabbitmq_queue_messages_ready{queue="orders"} > 500
+        for: 5m
+        labels:
+          severity: critical
+          team: checkout
+        annotations:
+          summary: "{{ $value | humanize }} orders are waiting to be processed."
+          description: Checkout confirmations are delayed. Scale the order workers.
