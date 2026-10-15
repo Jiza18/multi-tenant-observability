@@ -1,0 +1,39 @@
+# Local cluster (kind) with in-cluster S3 and the public demo tokens.
+#   make kind-up
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - ../../base
+  - seaweedfs.yaml
+
+secretGenerator:
+  - name: mimir-object-storage
+    literals:
+      - S3_ENDPOINT=seaweedfs:8333
+      - S3_BUCKET=mimir
+      - S3_ACCESS_KEY_ID=mimir
+      - S3_SECRET_ACCESS_KEY=mimir-demo-secret
+      - S3_INSECURE=true
+  - name: seaweedfs-s3-identities
+    files:
+      - s3.json=seaweedfs-s3.json
+  - name: grafana-admin
+    literals:
+      - password=admin
+  # Stable name: the gateway hot-reloads token changes without a restart.
+  - name: tenant-gateway-tokens
+    files:
+      - tokens.yaml=demo-tokens.yaml
+    options:
+      disableNameSuffixHash: true
+
+images:
+  - name: ghcr.io/jiza18/tenant-gateway
+    newName: tenant-gateway
+    newTag: dev # built locally and loaded with `kind load docker-image`
+
+patches:
+  - path: patches/small-footprint.yaml

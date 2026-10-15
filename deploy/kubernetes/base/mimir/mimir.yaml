@@ -1,0 +1,83 @@
+# Mimir in monolithic mode: every replica runs every component and the
+# replicas form one cluster through memberlist. Blocks, rules and Alertmanager
+# state live in object storage, so replicas are interchangeable.
+#
+# This file is shared by the Kubernetes deployment and the Compose demo.
+# Environment-specific values come from environment variables
+# (-config.expand-env=true).
+
+target: all,alertmanager,overrides-exporter
+
+common:
+  storage:
+    backend: s3
+    s3:
+      endpoint: ${S3_ENDPOINT}
+      bucket_name: ${S3_BUCKET}
+      access_key_id: ${S3_ACCESS_KEY_ID}
+      secret_access_key: ${S3_SECRET_ACCESS_KEY}
+      insecure: ${S3_INSECURE:false}
+
+blocks_storage:
+  storage_prefix: blocks
+  tsdb:
+    dir: /data/tsdb
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+
+ruler_storage:
+  storage_prefix: ruler
+
+alertmanager_storage:
+  storage_prefix: alertmanager
+
+memberlist:
+  join_members: ["${MIMIR_MEMBERLIST_JOIN}"]
+
+ingester:
+  ring:
+    replication_factor: 3
+
+ruler:
+  rule_path: /data/ruler
+  # Every replica runs an Alertmanager; the local one forwards each tenant's
+  # alerts to the replicas that own that tenant.
+  alertmanager_url: http://localhost:8080/alertmanager
+
+alertmanager:
+  data_dir: /data/alertmanager
+  external_url: ${MIMIR_ALERTMANAGER_URL}
+  # Used for tenants that have not uploaded their own Alertmanager config.
+  fallback_config_file: /etc/mimir/alertmanager-fallback.yaml
+
+compactor:
+  data_dir: /data/compactor
+
+# Lets one query span several tenants ("X-Scope-OrgID: a|b"). The central
+# alerts console in Grafana relies on it.
+tenant_federation:
+  enabled: true
+
+# Defaults for any tenant. Per-tenant values are rendered from
+# tenants/tenants.yaml into the runtime config, which Mimir reloads without a
+# restart.
+limits:
+  compactor_blocks_retention_period: 30d
+  max_global_series_per_user: 150000
+  ingestion_rate: 20000
+  ingestion_burst_size: 200000
+
+runtime_config:
+  file: /etc/mimir/runtime/mimir-runtime.yaml
+
+# Keep every write under /data so the root filesystem can stay read-only.
+activity_tracker:
+  filepath: /data/metrics-activity.log
+
+server:
+  http_listen_port: 8080
+  grpc_listen_port: 9095
+  log_level: info
+
+usage_stats:
+  enabled: false

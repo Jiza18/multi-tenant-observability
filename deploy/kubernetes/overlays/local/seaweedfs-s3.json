@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "mimir",
+      "credentials": [{"accessKey": "mimir", "secretKey": "mimir-demo-secret"}],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

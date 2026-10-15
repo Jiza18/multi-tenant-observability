@@ -1,0 +1,86 @@
+# Platform base: Mimir (monolithic, 3 replicas), tenant-gateway, Grafana and
+# the self-monitoring agent. Overlays add object storage credentials, secrets
+# and how traffic reaches the gateway and Grafana.
+#
+# Apply with server-side apply (some dashboards exceed the size limit of the
+# client-side last-applied annotation):
+#   kubectl apply --server-side -k deploy/kubernetes/overlays/<env>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: multi-tenant-observability
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - network-policies.yaml
+  - mimir/statefulset.yaml
+  - mimir/services.yaml
+  - mimir/pdb.yaml
+  - tenant-gateway/deployment.yaml
+  - tenant-gateway/service.yaml
+  - tenant-gateway/pdb.yaml
+  - grafana/deployment.yaml
+  - grafana/service.yaml
+  - platform-agent/deployment.yaml
+  - platform-agent/rbac.yaml
+
+configMapGenerator:
+  - name: mimir-config
+    files:
+      - mimir/mimir.yaml
+      - mimir/alertmanager-fallback.yaml
+
+  # Mimir reloads per-tenant limits at runtime. A stable name updates the
+  # mounted file in place instead of restarting every replica.
+  - name: mimir-runtime-config
+    files:
+      - generated/mimir-runtime.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: grafana-provisioning
+    files:
+      - datasources.yaml=generated/grafana-datasources.yaml
+      - dashboards.yaml=grafana/dashboards.yaml
+
+  - name: platform-agent-config
+    files:
+      - config.alloy=platform-agent/config.alloy
+
+  # One ConfigMap per dashboard keeps each under the 1 MiB object limit.
+  - name: dashboard-alerts-console
+    files: [grafana/dashboards/platform/alerts-console.json]
+  - name: dashboard-tenants-overview
+    files: [grafana/dashboards/platform/tenants-overview.json]
+  - name: dashboard-node-exporter-full
+    files: [grafana/dashboards/hosts/node-exporter-full.json]
+  - name: dashboard-mimir-overview
+    files: [grafana/dashboards/mimir/mimir-overview.json]
+  - name: dashboard-mimir-writes
+    files: [grafana/dashboards/mimir/mimir-writes.json]
+  - name: dashboard-mimir-reads
+    files: [grafana/dashboards/mimir/mimir-reads.json]
+  - name: dashboard-mimir-queries
+    files: [grafana/dashboards/mimir/mimir-queries.json]
+  - name: dashboard-mimir-tenants
+    files: [grafana/dashboards/mimir/mimir-tenants.json]
+  - name: dashboard-mimir-top-tenants
+    files: [grafana/dashboards/mimir/mimir-top-tenants.json]
+  - name: dashboard-mimir-ruler
+    files: [grafana/dashboards/mimir/mimir-ruler.json]
+  - name: dashboard-mimir-alertmanager
+    files: [grafana/dashboards/mimir/mimir-alertmanager.json]
+  - name: dashboard-mimir-object-store
+    files: [grafana/dashboards/mimir/mimir-object-store.json]
+  - name: dashboard-mimir-compactor
+    files: [grafana/dashboards/mimir/mimir-compactor.json]
+
+images:
+  - name: tenant-gateway
+    newName: ghcr.io/jiza18/tenant-gateway
+    newTag: latest # pinned to a release in each overlay

@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mimir
+spec:
+  template:
+    spec:
+      containers:
+        - name: mimir
+          env:
+            - name: MIMIR_ALERTMANAGER_URL
+              value: https://metrics.example.com/alertmanager

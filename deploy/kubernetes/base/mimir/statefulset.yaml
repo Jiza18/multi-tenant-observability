@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mimir
+spec:
+  serviceName: mimir-headless
+  replicas: 3
+  # Replicas are interchangeable (state lives in object storage), so start
+  # them together instead of one by one.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mimir
+        app.kubernetes.io/component: monolithic
+        observability/memberlist: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Losing a node must not take out more than one replica (RF=3).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      terminationGracePeriodSeconds: 300 # time to flush the TSDB head on shutdown
+      containers:
+        - name: mimir
+          image: grafana/mimir:3.2.2
+          args:
+            - -config.file=/etc/mimir/mimir.yaml
+            - -config.expand-env=true
+          env:
+            - name: MIMIR_MEMBERLIST_JOIN
+              value: dns+mimir-gossip.observability.svc.cluster.local:7946
+            - name: MIMIR_ALERTMANAGER_URL
+              value: http://localhost:8080/alertmanager # public URL set in the production overlay
+          envFrom:
+            # S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY and
+            # optionally S3_INSECURE, provided by each overlay.
+            - secretRef:
+                name: mimir-object-storage
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 9095
+            - name: memberlist
+              containerPort: 7946
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          # No liveness probe on /ready: an ingester that is joining the ring
+          # or flushing is not ready, but must not be killed.
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mimir
+            - name: runtime-config
+              mountPath: /etc/mimir/runtime
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: mimir-config
+        - name: runtime-config
+          configMap:
+            name: mimir-runtime-config
+  volumeClaimTemplates:
+    # WAL and local caches only; blocks are shipped to object storage.
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 20Gi

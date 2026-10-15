@@ -1,0 +1,37 @@
+# Fit the platform on a laptop.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mimir
+spec:
+  template:
+    spec:
+      containers:
+        - name: mimir
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-agent
+spec:
+  template:
+    spec:
+      containers:
+        - name: alloy
+          env:
+            - name: CLUSTER_NAME
+              value: kind

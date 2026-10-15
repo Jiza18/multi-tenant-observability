@@ -1,0 +1,44 @@
+# Load-balanced entry point for the gateway, Grafana and the platform agent.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir
+spec:
+  selector:
+    app.kubernetes.io/name: mimir
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Stable per-pod DNS names for the StatefulSet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir-headless
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mimir
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: grpc
+      port: 9095
+      targetPort: grpc
+---
+# Memberlist seed list. Includes not-ready pods so a cold cluster can form.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir-gossip
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    observability/memberlist: "true"
+  ports:
+    - name: memberlist
+      port: 7946
+      targetPort: memberlist

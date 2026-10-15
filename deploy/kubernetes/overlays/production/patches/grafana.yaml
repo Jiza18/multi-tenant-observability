@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 2 # possible because state lives in PostgreSQL
+  template:
+    spec:
+      containers:
+        - name: grafana
+          envFrom:
+            - secretRef:
+                name: grafana-sso
+            - secretRef:
+                name: grafana-database
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: https://grafana.example.com
+            - name: GF_DATABASE_TYPE
+              value: postgres
+            - name: GF_DATABASE_SSL_MODE
+              value: require
+            - name: GF_AUTH_AZUREAD_ENABLED
+              value: "true"
+            - name: GF_AUTH_AZUREAD_NAME
+              value: Microsoft Entra ID
+            - name: GF_AUTH_AZUREAD_SCOPES
+              value: openid email profile
+            - name: GF_AUTH_AZUREAD_USE_PKCE
+              value: "true"
+            - name: GF_AUTH_AZUREAD_ALLOW_SIGN_UP
+              value: "true"
+            # Grafana roles come from the app roles assigned in Entra ID.
+            - name: GF_AUTH_AZUREAD_ROLE_ATTRIBUTE_STRICT
+              value: "true"
+            - name: GF_AUTH_DISABLE_LOGIN_FORM
+              value: "true"

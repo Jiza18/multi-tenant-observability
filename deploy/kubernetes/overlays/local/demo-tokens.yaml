@@ -1,0 +1,27 @@
+# Gateway tokens for the local demo (Compose and the "local" overlay).
+# The plain-text tokens are in deploy/compose/.env. They are public on
+# purpose: never reuse this file outside a laptop.
+tokens:
+  # Host agent shipping metrics for ACME production.
+  - name: acme-prod-agent
+    sha256: 1a4c5ab58d13b0a83cddcd962c421e53ce22964007f09a98418d89d0e774d701
+    tenants: [acme-prod]
+    scopes: [metrics:write]
+
+  # Read-only access for ACME, e.g. their own Grafana or scripts.
+  - name: acme-prod-reader
+    sha256: 7a96f49ce6b19615de8834d10c7a278c4935f6e84fb2d4e1258fafee212dfc68
+    tenants: [acme-prod]
+    scopes: [metrics:read, alerts:read, rules:read]
+
+  # Globex's own Prometheus: forwards ALERTS series and pushes alerts.
+  - name: globex-prod-prometheus
+    sha256: f08a1aff8fdce6b14951950d071b4dbda52462f0c1154cf7194f5bd6bc2e90bf
+    tenants: [globex-prod]
+    scopes: [metrics:write, alerts:write]
+
+  # Operators and CI: manage rules and Alertmanager configs for any tenant.
+  - name: ops
+    sha256: 283678568245545316ceb381170fbcb6e94949f0b917c1e141f15b8fc8a96c39
+    tenants: ["*"]
+    scopes: [metrics:read, rules:read, rules:write, alerts:read, alertmanager:config]
