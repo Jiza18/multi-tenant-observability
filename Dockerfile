@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/ ./cmd/tenant-gateway
+
+FROM gcr.io/distroless/static-debian13:nonroot
+COPY --from=build /out/tenant-gateway /usr/local/bin/
+EXPOSE 8080 8081
+ENTRYPOINT ["/usr/local/bin/tenant-gateway"]

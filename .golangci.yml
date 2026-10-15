@@ -1,0 +1,21 @@
+version: "2"
+linters:
+  enable:
+    - errorlint
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+    - usestdlibvars
+  exclusions:
+    rules:
+      # Test fixtures use fake tokens and temporary files.
+      - path: _test\.go
+        linters: [gosec]
+      # File paths come from the operator's flags and configuration.
+      - linters: [gosec]
+        text: G304
+formatters:
+  enable:
+    - gofmt
+    - goimports
