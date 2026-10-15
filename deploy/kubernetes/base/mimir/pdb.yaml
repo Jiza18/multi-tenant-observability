@@ -1,0 +1,10 @@
+# With replication factor 3, writes and reads survive one replica down.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mimir
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir

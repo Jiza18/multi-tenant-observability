@@ -1,0 +1,49 @@
+# Mimir trusts the X-Scope-OrgID header, so only components that set it
+# correctly may reach it: the gateway (for external clients), Grafana, the
+# self-monitoring agent and the other Mimir replicas.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mimir
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [mimir, tenant-gateway, grafana, platform-agent]
+      ports:
+        - port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir
+      ports:
+        - port: 9095
+        - port: 7946
+---
+# The gateway is the public entry point. Its internal port (metrics, health)
+# is only for the kubelet and the self-monitoring agent.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tenant-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-agent
+      ports:
+        - port: 8081

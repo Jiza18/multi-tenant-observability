@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tenant-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tenant-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: tenant-gateway
+      containers:
+        - name: tenant-gateway
+          image: tenant-gateway
+          env:
+            - name: GATEWAY_UPSTREAM_URL
+              value: http://mimir:8080
+            - name: GATEWAY_TOKENS_FILE
+              value: /etc/tenant-gateway/tokens.yaml
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: internal
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: internal
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: internal
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            # Mounted as a directory (not subPath) so Secret updates propagate
+            # and the gateway hot-reloads them.
+            - name: tokens
+              mountPath: /etc/tenant-gateway
+              readOnly: true
+      volumes:
+        - name: tokens
+          secret:
+            secretName: tenant-gateway-tokens
