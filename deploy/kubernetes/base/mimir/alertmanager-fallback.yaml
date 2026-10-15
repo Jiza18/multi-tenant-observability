@@ -1,0 +1,8 @@
+# Alertmanager configuration for tenants that have not uploaded their own
+# (mimirtool alertmanager load). Alerts are kept and visible in Grafana, but
+# not sent anywhere.
+route:
+  receiver: unrouted
+  group_by: [alertname, cluster, namespace]
+receivers:
+  - name: unrouted
