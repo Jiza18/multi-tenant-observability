@@ -1,0 +1,24 @@
+# Production: managed object storage, secrets from an external secret store
+# (External Secrets Operator) and traffic through Gateway API.
+#
+# Replace the example.com hostnames, the Gateway reference and the secret
+# store paths with your own before applying:
+#   kubectl apply --server-side -k deploy/kubernetes/overlays/production
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - ../../base
+  - external-secrets.yaml
+  - routes.yaml
+
+images:
+  - name: ghcr.io/jiza18/tenant-gateway
+    newTag: 0.1.0
+
+patches:
+  - path: patches/mimir.yaml
+  - path: patches/grafana.yaml
+  - path: patches/platform-agent.yaml
