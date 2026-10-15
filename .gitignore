@@ -1,0 +1,11 @@
+# Local tooling
+.idea/
+.vscode/
+*.swp
+
+# Build output
+/bin/
+/dist/
+
+# Ansible inventories hold host names; only the example is versioned.
+agents/alloy/ansible/inventory.yaml
