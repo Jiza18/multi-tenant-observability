@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "kubernetes": {
+    "managerFilePatterns": ["/^deploy/kubernetes/.+\\.yaml$/"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Pinned versions in Makefile and scripts",
+      "managerFilePatterns": ["/^Makefile$/", "/^scripts/.+\\.sh$/"],
+      "matchStrings": [
+        "(?<depName>prom/prometheus):(?<currentValue>v[0-9.]+)",
+        "(?<depName>grafana/mimirtool):(?<currentValue>[0-9.]+)",
+        "(?<depName>ghcr\\.io/yannh/kubeconform):(?<currentValue>v[0-9.]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Mimir version of the vendored mixin",
+      "managerFilePatterns": ["/^scripts/vendor-upstream\\.sh$/"],
+      "matchStrings": ["MIMIR_VERSION=\"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "grafana/mimir",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^mimir-(?<version>.*)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep Mimir images and the vendored mixin on the same version",
+      "matchPackageNames": ["grafana/mimir", "grafana/mimirtool"],
+      "groupName": "mimir"
+    }
+  ]
+}
