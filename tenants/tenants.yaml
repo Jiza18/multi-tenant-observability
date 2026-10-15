@@ -1,0 +1,44 @@
+# Single source of truth for tenants.
+#
+# `make generate` renders from this file:
+#   - Mimir per-tenant overrides      deploy/kubernetes/base/generated/mimir-runtime.yaml
+#   - Grafana datasources             deploy/kubernetes/base/generated/grafana-datasources.yaml
+#   - Rule sync plan                  rules/sync-plan.tsv
+#
+# Tokens are NOT configured here: they are secrets and live in the gateway
+# token file (see docs/onboarding.md).
+
+defaults:
+  retention: 30d
+  ingestion_rate: 20000          # samples/s per tenant
+  ingestion_burst_size: 200000
+  max_global_series: 150000
+
+tenants:
+  # Self-monitoring of the platform itself (Mimir, gateway, Grafana).
+  - id: platform
+    name: Platform
+    retention: 15d
+    max_global_series: 300000
+    ruler_max_rules_per_group: 50  # upstream mixin groups are larger than the default 20
+    rule_sets: [watchdog, platform, mimir-mixin-rules, mimir-mixin-alerts]
+
+  # Agent-only tenant: ships raw metrics, rules are evaluated centrally.
+  - id: acme-prod
+    name: ACME · Production
+    max_global_series: 500000
+    rule_sets: [watchdog, agent-health, hosts, rabbitmq, mongodb]
+
+  - id: acme-staging
+    name: ACME · Staging
+    retention: 7d
+    rule_sets: [watchdog, agent-health, hosts]
+
+  # Tenant running its own Prometheus: rules are evaluated on its side and
+  # only ALERTS / ALERTS_FOR_STATE are forwarded for the central console.
+  # No central rule sets, not even watchdog: its Watchdog must come from its
+  # own Prometheus, or the console could not tell that forwarding broke.
+  - id: globex-prod
+    name: Globex · Production
+    retention: 90d
+    max_global_series: 20000
