@@ -1,0 +1,43 @@
+// Self-monitoring for the Compose demo. Scrapes the platform components and
+// writes to the `platform` tenant directly over the internal network.
+//
+// Labels follow the convention the Mimir mixin dashboards expect:
+// cluster, namespace, job="<namespace>/<component>" and pod. Scrape every 15s
+// to match the datasources' timeInterval (Grafana's $__rate_interval).
+
+prometheus.scrape "mimir" {
+	job_name        = "observability/mimir"
+	scrape_interval = "15s"
+	targets         = [
+		{"__address__" = "mimir-1:8080", "pod" = "mimir-1"},
+		{"__address__" = "mimir-2:8080", "pod" = "mimir-2"},
+		{"__address__" = "mimir-3:8080", "pod" = "mimir-3"},
+	]
+	forward_to = [prometheus.remote_write.platform.receiver]
+}
+
+prometheus.scrape "tenant_gateway" {
+	job_name        = "observability/tenant-gateway"
+	scrape_interval = "15s"
+	targets         = [{"__address__" = "tenant-gateway:8081", "pod" = "tenant-gateway"}]
+	forward_to      = [prometheus.remote_write.platform.receiver]
+}
+
+prometheus.scrape "grafana" {
+	job_name        = "observability/grafana"
+	scrape_interval = "15s"
+	targets         = [{"__address__" = "grafana:3000", "pod" = "grafana"}]
+	forward_to      = [prometheus.remote_write.platform.receiver]
+}
+
+prometheus.remote_write "platform" {
+	external_labels = {
+		cluster   = "compose",
+		namespace = "observability",
+	}
+
+	endpoint {
+		url     = "http://mimir:8080/api/v1/push"
+		headers = {"X-Scope-OrgID" = "platform"}
+	}
+}
