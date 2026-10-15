@@ -1,0 +1,14 @@
+# Copy to inventory.yaml (git-ignored) and adapt. Keep tokens in Ansible
+# Vault: ansible-vault encrypt_string --name observability_token '<token>'
+monitored:
+  vars:
+    observability_gateway_url: https://metrics.example.com
+  children:
+    acme_prod:
+      vars:
+        observability_token: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          ...
+      hosts:
+        web-1.acme.internal:
+        web-2.acme.internal:

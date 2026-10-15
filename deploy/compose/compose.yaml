@@ -1,0 +1,168 @@
+# Local demo of the platform.
+#
+#   make up     platform only: Mimir x3, object storage, gateway, Grafana
+#   make demo   platform + simulated tenants + rule sync
+#
+# Configuration is shared with the Kubernetes deployment: the files mounted
+# from ../kubernetes/base are the same ones Kustomize packs into ConfigMaps.
+
+name: observability
+
+x-mimir: &mimir
+  image: grafana/mimir:3.2.2
+  command: ["-config.file=/etc/mimir/mimir.yaml", "-config.expand-env=true"]
+  environment:
+    S3_ENDPOINT: seaweedfs:8333
+    S3_BUCKET: mimir
+    S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+    S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    S3_INSECURE: "true"
+    MIMIR_MEMBERLIST_JOIN: dns+mimir:7946
+    MIMIR_ALERTMANAGER_URL: http://localhost:8080/alertmanager
+  volumes:
+    - ../kubernetes/base/mimir/mimir.yaml:/etc/mimir/mimir.yaml:ro
+    - ../kubernetes/base/mimir/alertmanager-fallback.yaml:/etc/mimir/alertmanager-fallback.yaml:ro
+    - ../kubernetes/base/generated/mimir-runtime.yaml:/etc/mimir/runtime/mimir-runtime.yaml:ro
+    # WAL and caches only: blocks, rules and Alertmanager state are in S3.
+    - /data
+  networks:
+    default:
+      aliases: [mimir]
+  depends_on:
+    bucket-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    command: server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=256
+    configs:
+      - source: s3-identities
+        target: /etc/seaweedfs/s3.json
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8333/healthz"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Mimir does not create buckets; do it once before it starts.
+  bucket-init:
+    image: chrislusf/seaweedfs:4.48
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        echo s3.bucket.list | weed shell -master=seaweedfs:9333 | grep -qw mimir \
+          || echo "s3.bucket.create -name mimir" | weed shell -master=seaweedfs:9333
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+
+  mimir-1:
+    <<: *mimir
+    hostname: mimir-1
+
+  mimir-2:
+    <<: *mimir
+    hostname: mimir-2
+
+  mimir-3:
+    <<: *mimir
+    hostname: mimir-3
+
+  tenant-gateway:
+    build: ../..
+    image: tenant-gateway:dev
+    environment:
+      GATEWAY_UPSTREAM_URL: http://mimir:8080
+      GATEWAY_TOKENS_FILE: /etc/tenant-gateway/tokens.yaml
+    volumes:
+      - ../kubernetes/overlays/local/demo-tokens.yaml:/etc/tenant-gateway/tokens.yaml:ro
+    ports:
+      - 127.0.0.1:8080:8080
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tenant-gateway", "healthcheck"]
+      interval: 5s
+    depends_on: [mimir-1, mimir-2, mimir-3]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/platform/alerts-console.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ../kubernetes/base/generated/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ../kubernetes/base/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ../kubernetes/base/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - 127.0.0.1:3000:3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 5s
+    restart: unless-stopped
+
+  platform-agent:
+    image: grafana/alloy:v1.20.1
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    volumes:
+      - ./platform-agent.alloy:/etc/alloy/config.alloy:ro
+    depends_on: [mimir-1, mimir-2, mimir-3]
+    restart: unless-stopped
+
+  # --- Simulated tenants (profile "demo") -----------------------------------
+
+  # ACME ships raw host metrics with Alloy; its rules run in Mimir's ruler.
+  acme-prod-agent:
+    profiles: [demo]
+    image: grafana/alloy:v1.20.1
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    hostname: acme-web-1
+    environment:
+      MIMIR_URL: http://tenant-gateway:8080
+      MIMIR_TOKEN: ${ACME_PROD_AGENT_TOKEN}
+      HOST_ROOT: /host
+    volumes:
+      - ../../agents/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    depends_on:
+      tenant-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Globex runs its own Prometheus and only forwards its alerts.
+  globex-prod-prometheus:
+    profiles: [demo]
+    image: prom/prometheus:v3.13.4
+    volumes:
+      - ./demo/globex/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./demo/globex/rules.yml:/etc/prometheus/rules.yml:ro
+    configs:
+      - source: globex-token
+        target: /run/secrets/gateway-token
+    depends_on:
+      tenant-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+configs:
+  s3-identities:
+    content: |
+      {"identities": [{
+        "name": "mimir",
+        "credentials": [{"accessKey": "${S3_ACCESS_KEY_ID}", "secretKey": "${S3_SECRET_ACCESS_KEY}"}],
+        "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+      }]}
+  globex-token:
+    content: ${GLOBEX_PROD_PROMETHEUS_TOKEN}
+
+volumes:
+  seaweedfs-data:

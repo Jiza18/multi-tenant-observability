@@ -1,0 +1,38 @@
+# Values for Grafana's k8s-monitoring Helm chart (v4), for tenants that ship
+# a whole Kubernetes cluster to the platform.
+#
+#   kubectl create namespace monitoring
+#   kubectl -n monitoring create secret generic observability-token --from-literal=token=<token>
+#   helm upgrade --install k8s-monitoring grafana/k8s-monitoring --version 4.5.3 \
+#     -n monitoring -f k8s-monitoring-values.yaml --set cluster.name=<cluster>
+#
+# The tenant is derived from the token, so no X-Scope-OrgID is configured.
+cluster:
+  name: ""  # set with --set cluster.name=...
+
+destinations:
+  platform:
+    type: prometheus
+    url: https://metrics.example.com/api/v1/push
+    auth:
+      type: bearerToken
+      bearerTokenKey: token
+    secret:
+      create: false
+      name: observability-token
+      namespace: monitoring
+
+clusterMetrics:
+  enabled: true
+
+collectors:
+  alloy-metrics:
+    presets: [clustered, statefulset]
+
+# Deploy the exporters cluster metrics depend on. Set to false and point
+# clusterMetrics at existing ones if the cluster already runs them.
+telemetryServices:
+  kube-state-metrics:
+    deploy: true
+  node-exporter:
+    deploy: true

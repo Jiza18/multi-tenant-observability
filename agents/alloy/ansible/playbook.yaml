@@ -1,0 +1,25 @@
+# Installs the host agent as a systemd service with the same configuration
+# used everywhere else (../config.alloy).
+#
+#   ansible-galaxy collection install -r requirements.yaml
+#   ansible-playbook -i inventory.yaml playbook.yaml --ask-vault-pass
+- name: Install the observability host agent
+  hosts: monitored
+  become: true
+
+  vars:
+    alloy_version: "1.20.1"
+    alloy_config: "{{ lookup('ansible.builtin.file', '../config.alloy') }}"
+    # Read by config.alloy through sys.env(); the env file is root-only.
+    alloy_env_file_vars:
+      MIMIR_URL: "{{ observability_gateway_url }}"
+      MIMIR_TOKEN: "{{ observability_token }}"
+
+  pre_tasks:
+    - name: Check that the tenant token is set
+      ansible.builtin.assert:
+        that: observability_token | default('') | length > 0
+        fail_msg: Set observability_token for this host (Ansible Vault).
+
+  roles:
+    - role: grafana.grafana.alloy

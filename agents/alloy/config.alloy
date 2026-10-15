@@ -1,0 +1,62 @@
+// Host agent: collects Linux host metrics and ships them to the platform.
+//
+// Configuration comes from the environment, so the same file is used by the
+// Docker, systemd (Ansible) and Compose-demo installs:
+//
+//   MIMIR_URL     gateway base URL, e.g. https://metrics.example.com
+//   MIMIR_TOKEN   token issued for this tenant (scope metrics:write)
+//   HOST_ROOT     where the host filesystem is mounted inside a container
+//                 (e.g. /host); leave unset when running directly on the host
+
+prometheus.exporter.unix "host" {
+	rootfs_path = coalesce(sys.env("HOST_ROOT"), "/")
+	procfs_path = sys.env("HOST_ROOT") + "/proc"
+	sysfs_path  = sys.env("HOST_ROOT") + "/sys"
+
+	disable_collectors = ["btrfs", "infiniband", "ipvs", "xfs", "zfs"]
+
+	filesystem {
+		fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs)$"
+		mount_points_exclude = "^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/.+)($|/)"
+	}
+
+	netclass {
+		ignored_devices = "^(veth.*|cali.*|docker.*|br-.*)$"
+	}
+}
+
+discovery.relabel "host" {
+	targets = prometheus.exporter.unix.host.targets
+
+	rule {
+		target_label = "instance"
+		replacement  = constants.hostname
+	}
+
+	rule {
+		target_label = "job"
+		replacement  = "node"
+	}
+}
+
+prometheus.scrape "host" {
+	targets         = discovery.relabel.host.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.platform.receiver]
+}
+
+// The agent's own health, so a broken agent is visible centrally.
+prometheus.exporter.self "agent" { }
+
+prometheus.scrape "agent" {
+	targets         = prometheus.exporter.self.agent.targets
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.platform.receiver]
+}
+
+prometheus.remote_write "platform" {
+	endpoint {
+		url          = sys.env("MIMIR_URL") + "/api/v1/push"
+		bearer_token = sys.env("MIMIR_TOKEN")
+	}
+}

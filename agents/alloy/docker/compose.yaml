@@ -1,0 +1,28 @@
+# Host agent as a container, for Docker hosts.
+#
+#   MIMIR_URL=https://metrics.example.com MIMIR_TOKEN=... docker compose up -d
+#
+# Keep MIMIR_TOKEN out of shell history: put it in a .env file next to this
+# one (chmod 600) or in your secret manager.
+name: observability-agent
+
+services:
+  alloy:
+    image: grafana/alloy:v1.20.1
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    hostname: ${HOSTNAME:?set HOSTNAME so metrics carry the real host name}
+    environment:
+      MIMIR_URL: ${MIMIR_URL:?set MIMIR_URL}
+      MIMIR_TOKEN: ${MIMIR_TOKEN:?set MIMIR_TOKEN}
+      HOST_ROOT: /host
+    volumes:
+      - ../config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      # Read-only views of the host for the node exporter.
+      - /:/host:ro,rslave
+    pid: host
+    network_mode: host
+    restart: unless-stopped
+
+volumes:
+  alloy-data:
